@@ -1,69 +1,72 @@
 #!/usr/bin/python3
-""" Write a Fabric script (based on the file
- 2-do_deploy_web_static.py) that creates and distributes
-  an archive to your web servers, using the function
-   deploy"""
-from fabric.api import local, env, run, put
+"""creates and distributes an archive to web servers.
+using the function deploy
+"""
+
 from datetime import datetime
-from os.path import exists
-
-env.hosts = ['34.73.169.245', '35.231.18.60']
-
-
-def do_pack():
-    """[summary]"""
-    local('mkdir -p versions')
-    tar_dir = local("tar -czvf versions/web_static_{}.tgz web_static/".format((
-        datetime.strftime(datetime.now(), "%Y%m%d%H%M%S"))), capture=True)
-
-    if tar_dir.succeeded:
-        return tar_dir
-    return None
+from fabric.api import *
+import os.path
 
 
-def do_deploy(archive_path):
-    """[summary]"""
-    # Returns False if the file at the path archive_path doesn’t exist
-    if exists(archive_path):
-        # archive_path = versions/web_static_#####.tgz
-        # file_path = web_static_#####.tgz
-        file_path = archive_path.split("/")[1]
-        # serv_path = /data/web_static/releases/web_static_#####
-        serv_path = "/data/web_static/releases/{}".format(
-            file_path.replace(".tgz", ""))
-        # Upload the archive to the /tmp/ directory of the web server
-        put('{}'.format(archive_path), '/tmp/')
-        # ???
-        run('mkdir -p {}'.format(serv_path))
-        # Uncompress the archive to the folde <..> on the web server
-        run('tar -xzf /tmp/{} -C {}/'.format(
-            file_path,
-            serv_path))
-        # Delete the archive from the web server
-        run('rm /tmp/{}'.format(file_path))
-        # ???
-        run('mv -f {}/web_static/* {}/'.format(serv_path, serv_path))
-        # Delete the symbolic link <..> from the web server
-        run('rm -rf {}/web_static'.format(
-            serv_path))
-        # ??
-        run('rm -rf /data/web_static/current')
-        # run('unlink /data/web_static/current')
-        # Create a new Symbolic link, linked to the new version of your code
-        run('ln -s {} /data/web_static/current'.format(
-            serv_path))
-        # Retur  True if all operations have been done correctly
-        return True
-    else:
-        return False
+env.hosts = ['101.188.67.134', '101.188.67.134']
 
 
 def deploy():
-    """ Summary """
-    archive = do_pack()
-    if archive is None:
+    archive_path = do_pack()
+    if archive_path is None:
         return False
-    else:
-        value = archive.__dict__["command"].split(" ")[-2]
-        print(value)
-        return do_deploy(value)
+    return do_deploy(archive_path)
+
+
+def do_pack():
+    """generates a .tgz archive from the contents of the web_static folder"""
+    now = datetime.now()
+    dt_string = now.strftime("web_static_%Y%m%d%H%m%S")
+    output_file = "versions/{:}.tgz".format(dt_string)
+    local("mkdir -p versions")
+    result = local("tar -cvzf {:} web_static".format(output_file))
+    if result.failed:
+        return None
+    return output_file
+
+
+def do_deploy(archive_path):
+    """distributes an archive to your web servers"""
+    if not os.path.exists(archive_path):
+        return False
+    archive_list = archive_path.split("/")
+    archive_filename = archive_list[-1]
+    filename_list = archive_filename.split(".")
+    filename_noext = filename_list[0]
+    result = put(archive_path, "/tmp/")
+    if result.failed:
+        return False
+    result = run('mkdir -p /data/web_static/releases/{:}/'.format(
+        filename_noext))
+    if result.failed:
+        return False
+    result = run('tar -xzf /tmp/{:} -C /data/web_static/releases/{:}/'.format(
+        archive_filename, filename_noext))
+    if result.failed:
+        return False
+    result = run('rm /tmp/{:}'.format(archive_filename))
+    if result.failed:
+        return False
+    result = run('mv /data/web_static/releases/{:}/web_static/* \
+                 /data/web_static/releases/{:}/'.format(
+                     filename_noext, filename_noext))
+    if result.failed:
+        return False
+    result = run("rm -rf /data/web_static/releases/{:}/web_static".format(
+        filename_noext))
+    if result.failed:
+        return False
+    result = run('rm -rf /data/web_static/current')
+    if result.failed:
+        return False
+    result = run(
+        'ln -s /data/web_static/releases/{:}/ /data/web_static/current'.format(
+            filename_noext))
+    if result.failed:
+        return False
+    return True
